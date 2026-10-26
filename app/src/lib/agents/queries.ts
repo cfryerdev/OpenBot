@@ -30,6 +30,11 @@ export type AgentProfile = {
   /** Whether a key is set for it. Never the key itself. */
   hasAuth: boolean;
   /**
+   * The model it is forced onto, `provider/model`, or null when it runs on the deployment's own.
+   * See `GET /api/agents/models` for what can be chosen.
+   */
+  model?: string | null;
+  /**
    * Whether this coworker holds a credential for calling tools back.
    *
    * A boolean, because the token is readable exactly once: in the response that issued it. The
@@ -70,7 +75,42 @@ export const agentKeys = {
     ["agents", "bot-route-detail", agentId] as const,
   handoff: (agentId: string) => ["agents", "handoff", agentId] as const,
   capabilities: () => ["agents", "capabilities"] as const,
+  models: () => ["agents", "models"] as const,
 };
+
+/** One entry of the model dropdown. `value` is what is stored: `provider/model`. */
+export type ModelOption = {
+  value: string;
+  label: string;
+  provider: string;
+  providerLabel: string;
+};
+
+/** What the model dropdown lists, from the server. */
+export type ModelCatalog = {
+  /** The "use the deployment's own model" entry. Stored as no model. */
+  auto: { value: ""; label: string };
+  /** Models a Bot may be forced onto: OpenCode Zen's when its key is set, plus other keyed providers'. */
+  options: ModelOption[];
+  zen: {
+    /** Whether `OPENCODE_ZEN_API_KEY` is set. */
+    configured: boolean;
+    /** Whether the Zen list was just read from Zen, rather than the built-in fallback. */
+    live: boolean;
+  };
+};
+
+export function modelCatalogQueryOptions() {
+  return queryOptions({
+    queryKey: agentKeys.models(),
+    queryFn: (): Promise<ModelCatalog> =>
+      client("/api/agents/models", "models", {
+        fallback: "Couldn't load the list of models.",
+      }),
+    // The server caches Zen's list for minutes; there is no point asking the browser's cache again.
+    staleTime: 60_000,
+  });
+}
 
 /** What kinds of coworker this deployment can create. */
 export type AgentCapabilities = {

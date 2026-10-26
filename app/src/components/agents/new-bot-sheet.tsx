@@ -9,6 +9,7 @@ import { useMutation, useQuery } from "@tanstack/react-query";
 import { MotionConfig, motion, useReducedMotion } from "motion/react";
 import { useEffect, useRef, useState } from "react";
 import { HarnessMark } from "@/components/agents/harness-mark";
+import { ModelSelect } from "@/components/agents/model-select";
 import AgentOrb from "@/components/agents/orb/agent-orb";
 import { Button } from "@/components/ui/button";
 import {
@@ -37,6 +38,7 @@ import {
 import { createAgentMutationOptions } from "@/lib/agents/mutations";
 import {
   agentCapabilitiesQueryOptions,
+  modelCatalogQueryOptions,
   testAgentConnection,
 } from "@/lib/agents/queries";
 import { isComposing } from "@/lib/composing";
@@ -153,6 +155,8 @@ function NewBotFlow({ onCreated }: { onCreated: (agentId: string) => void }) {
   const [instructions, setInstructions] = useState("");
   /** Private until said otherwise: a Bot shown to everybody by accident is the worse mistake. */
   const [visibility, setVisibility] = useState<Visibility>("private");
+  /** `provider/model`, or empty to use the deployment's own model. */
+  const [model, setModel] = useState("");
   /** Run it here unless the person picks otherwise: the answer that needs nothing set up. */
   const [runtime, setRuntime] = useState<Runtime | null>({ kind: "builtin" });
   const [endpoint, setEndpoint] = useState("");
@@ -226,6 +230,7 @@ function NewBotFlow({ onCreated }: { onCreated: (agentId: string) => void }) {
         // A Bot that runs here has no address; whatever was typed on the way past stays behind.
         endpoint: managed ? endpoint.trim() : "",
         authValue: managed ? key : "",
+        model,
       }),
     );
     setCreatedId(agent.id);
@@ -341,6 +346,8 @@ function NewBotFlow({ onCreated }: { onCreated: (agentId: string) => void }) {
                 onName={setName}
                 onTitle={setTitle}
                 onVisibility={setVisibility}
+                model={model}
+                onModel={setModel}
                 title={title}
                 visibility={visibility}
               />
@@ -519,16 +526,20 @@ function AboutStep({
   instructions,
   runtime,
   visibility,
+  model,
   onName,
   onTitle,
   onInstructions,
   onVisibility,
+  onModel,
 }: {
   name: string;
   title: string;
   instructions: string;
   runtime: Runtime;
   visibility: Visibility;
+  model: string;
+  onModel: (value: string) => void;
   onName: (value: string) => void;
   onTitle: (value: string) => void;
   onInstructions: (value: string) => void;
@@ -584,6 +595,7 @@ function AboutStep({
             : "Added to your agent's own instructions."}
         </FieldDescription>
       </Field>
+      <ModelField id="new-bot-model" onChange={onModel} value={model} />
       <FieldSet>
         <FieldLegend variant="label">Who can see it</FieldLegend>
         <div className="grid gap-2 sm:grid-cols-2">
@@ -612,6 +624,36 @@ function AboutStep({
         </div>
       </FieldSet>
     </FieldGroup>
+  );
+}
+
+/**
+ * Which model it answers on. Shown only when the deployment offers a choice (see `ModelSelect`),
+ * so a deployment with no OpenCode Zen key sees the same step it always did.
+ */
+function ModelField({
+  id,
+  value,
+  onChange,
+}: {
+  id: string;
+  value: string;
+  onChange: (value: string) => void;
+}) {
+  const { data: catalog } = useQuery(modelCatalogQueryOptions());
+  if (!catalog || catalog.options.length === 0) return null;
+  return (
+    <Field>
+      <FieldLabel htmlFor={id}>
+        Model
+        <span className="font-normal text-muted-foreground">Optional</span>
+      </FieldLabel>
+      <ModelSelect id={id} onChange={onChange} value={value} />
+      <FieldDescription>
+        Force it onto one model. Leave it on Auto to use the model this
+        deployment is set up with.
+      </FieldDescription>
+    </Field>
   );
 }
 

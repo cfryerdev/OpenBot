@@ -16,6 +16,8 @@ export type AgentInput = {
   endpoint?: string;
   /** Write-only auth value; omitted when the user leaves the key field empty. */
   auth?: { header: string; value: string };
+  /** `provider/model` to force the Bot onto. Empty clears it; omitted leaves it as stored. */
+  model?: string;
 };
 
 /** The sentence for every write here, since they all fail the same way to a reader. */

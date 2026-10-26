@@ -39,6 +39,11 @@ export const agentFormSchema = z.object({
    * always empty when editing, and leaving it empty keeps whatever key is already set.
    */
   authValue: z.string(),
+  /**
+   * The model to force this Bot onto, `provider/model`. Empty means the deployment's own model.
+   * Optional so a form that has no model field (a Bot proposing a coworker) leaves it unsaid.
+   */
+  model: z.string().trim().max(200).optional(),
 });
 
 export type AgentFormValues = z.infer<typeof agentFormSchema>;
@@ -50,6 +55,7 @@ export const emptyAgentForm: AgentFormValues = {
   visibility: "private",
   endpoint: "",
   authValue: "",
+  model: "",
 };
 
 /** Convert form values to API input; omit an empty key so editing preserves the current credential. */
@@ -60,6 +66,8 @@ export function agentInputFrom(values: AgentFormValues) {
     roleDescription: values.roleDescription,
     visibility: values.visibility,
     endpoint: values.endpoint,
+    // Sent even when empty on an edit: empty is "back to the deployment's model", absent is "leave it".
+    ...(values.model === undefined ? {} : { model: values.model }),
     ...(values.authValue.trim()
       ? { auth: { header: "Authorization", value: values.authValue.trim() } }
       : {}),
@@ -86,6 +94,8 @@ export function profileUpdateInput(
     visibility: profile.visibility,
     endpoint: profile.builtIn ? "" : (profile.endpoint ?? ""),
     authValue: "",
+    // Carried as stored, so editing a name never silently drops the Bot's chosen model.
+    model: profile.model ?? "",
     ...patch,
   });
 }

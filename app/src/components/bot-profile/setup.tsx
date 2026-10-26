@@ -1,5 +1,6 @@
 import {
   IconChevronRight,
+  IconCpu,
   IconEye,
   IconId,
   IconPlugConnected,
@@ -7,10 +8,11 @@ import {
   IconTag,
   IconTextCaption,
 } from "@tabler/icons-react";
-import { useMutation } from "@tanstack/react-query";
+import { useMutation, useQuery } from "@tanstack/react-query";
 import { Fragment, useState } from "react";
 import type { ZodType } from "zod";
 import { CallbackTokenPanel } from "@/components/agents/callback-token-panel";
+import { ModelSelect } from "@/components/agents/model-select";
 import { PageRows, PageSection } from "@/components/layout/page-shell";
 import { Button } from "@/components/ui/button";
 import {
@@ -45,7 +47,10 @@ import {
   profileUpdateInput,
 } from "@/lib/agents/form";
 import { updateAgentMutationOptions } from "@/lib/agents/mutations";
-import type { AgentProfile } from "@/lib/agents/queries";
+import {
+  type AgentProfile,
+  modelCatalogQueryOptions,
+} from "@/lib/agents/queries";
 import { isComposing } from "@/lib/composing";
 import { queryClient } from "@/query-client";
 
@@ -115,6 +120,12 @@ export function SetupSections({ agent }: { agent: AgentProfile }) {
             agent={agent}
             onSave={(visibility) => save({ visibility })}
           />
+          {agent.canManage && !agent.systemOwned ? (
+            <>
+              <Separator />
+              <ModelRow agent={agent} onSave={(model) => save({ model })} />
+            </>
+          ) : null}
           {agent.systemOwned ? (
             <>
               <Separator />
@@ -209,6 +220,64 @@ function VisibilityRow({
             {agent.visibility === "private" ? "Private" : "Public"}
           </span>
         )}
+      </ItemActions>
+    </Item>
+  );
+}
+
+/**
+ * The model this Bot is forced onto. Writes on pick, like visibility.
+ *
+ * Absent from the screen when the deployment offers nothing to choose (see `ModelSelect`), which
+ * leaves the row's text unrendered as well, so a deployment without Zen sees no change here.
+ */
+function ModelRow({
+  agent,
+  onSave,
+}: {
+  agent: AgentProfile;
+  onSave: (model: string) => Promise<unknown>;
+}) {
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const { data: catalog } = useQuery(modelCatalogQueryOptions());
+  if (!catalog || (catalog.options.length === 0 && !agent.model)) return null;
+  return (
+    <Item size="sm">
+      <ItemMedia variant="icon">
+        <IconCpu />
+      </ItemMedia>
+      <ItemContent>
+        <ItemTitle>Model</ItemTitle>
+        <ItemDescription>
+          {error ??
+            (agent.model
+              ? "This Bot always answers on the model you picked."
+              : "Uses the model this deployment is set up with.")}
+        </ItemDescription>
+      </ItemContent>
+      <ItemActions>
+        <ModelSelect
+          className="w-56"
+          disabled={saving}
+          onChange={async (next) => {
+            if (next === (agent.model ?? "")) return;
+            setError(null);
+            setSaving(true);
+            try {
+              await onSave(next);
+            } catch (failure) {
+              setError(
+                failure instanceof Error
+                  ? failure.message
+                  : "Couldn't save. Try again.",
+              );
+            } finally {
+              setSaving(false);
+            }
+          }}
+          value={agent.model ?? ""}
+        />
       </ItemActions>
     </Item>
   );
