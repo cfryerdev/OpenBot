@@ -18,6 +18,12 @@
       "key_variable": "GOOGLE_API_KEY",
       "base_url_variable": "GOOGLE_GENERATIVE_AI_BASE_URL",
       "default_model": "gemini-2.5-flash"
+    },
+    "opencode-zen": {
+      "label": "OpenCode Zen",
+      "key_variable": "OPENCODE_ZEN_API_KEY",
+      "base_url_variable": "OPENCODE_ZEN_BASE_URL",
+      "default_model": "glm-5.3-flash"
     }
   },
   "bots": {

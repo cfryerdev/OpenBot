@@ -40,7 +40,7 @@ _WHERE = "shared/model_providers.py"
 # against its own list is what makes a provider added to the JSON alone stop these Bots too, where
 # before this list existed only the TypeScript Bots were stopped by it. Adding a provider is one
 # entry here, one in that module, and one row to the JSON file.
-PROVIDER_IDS: tuple[str, ...] = ("openai", "anthropic", "google")
+PROVIDER_IDS: tuple[str, ...] = ("openai", "anthropic", "google", "opencode-zen")
 
 
 def _spec_path() -> Path:

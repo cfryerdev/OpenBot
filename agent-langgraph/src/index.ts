@@ -13,6 +13,7 @@ import { ChatOpenAI } from "@langchain/openai";
 import { serve } from "bun";
 import { hasManagedAgentToken } from "../../shared/agent-authorisation";
 import { listenPort } from "../../shared/listen-port";
+import { ZEN_DEFAULT_BASE_URL, ZEN_PROVIDER_ID } from "../../shared/zen";
 import {
   apiKeyOrPlaceholder,
   baseUrlVariableFor,
@@ -112,7 +113,10 @@ const USE_RESPONSES_API =
  */
 const baseUrlVariable = baseUrlVariableFor(PROVIDER);
 const BASE_URL = baseUrlVariable
-  ? process.env[baseUrlVariable]?.trim() || undefined
+  ? process.env[baseUrlVariable]?.trim() ||
+    // OpenCode Zen is an OpenAI-compatible endpoint with no public default of the SDK's own, so
+    // naming the provider is enough to point at it.
+    (PROVIDER === ZEN_PROVIDER_ID ? ZEN_DEFAULT_BASE_URL : undefined)
   : undefined;
 
 /**

@@ -94,6 +94,6 @@ def test_a_bot_naming_a_provider_the_list_has_never_heard_of_is_refused(tmp_path
     spec = _spec()
     spec["bots"]["agent-x"]["provider"] = "mistral"
     assert (
-        'bots.agent-x.provider is "mistral", not one of openai, anthropic, google.'
+        'bots.agent-x.provider is "mistral", not one of openai, anthropic, google, opencode-zen.'
         in _refusal(spec, tmp_path)
     )
