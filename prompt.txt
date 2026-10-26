@@ -124,6 +124,11 @@ OpenAI model. For a compatible endpoint, set OPENAI_BASE_URL, OPENAI_API_KEY if 
 one, and BOT_MODEL to the model name the endpoint publishes. Do not paste ChatGPT or Claude
 browser-session tokens into `.env`.
 
+For OpenCode Zen (one key for GLM, Kimi, DeepSeek, Qwen, Claude, GPT and others), set
+OPENCODE_ZEN_API_KEY. Each Bot's form then has a Model dropdown to force it onto a Zen model. With no
+OPENAI_API_KEY, ANTHROPIC_API_KEY or BOT_PROVIDER set, Zen is also the default for Bots with no model
+chosen. See docs/configuration.md, "OpenCode Zen".
+
 Then:
 
   bash scripts/start.sh

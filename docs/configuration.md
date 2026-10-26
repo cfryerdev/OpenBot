@@ -51,8 +51,10 @@ at `agent-langgraph` on a laptop.
 | `DEPLOYMENT_ID`      | the tenant package's id            | Names this deployment inside a shared Intelligence project, and prefixes the identity a Shared app's account is held under at the vendor. That identity is fixed when the app is made Shared, so changing this later does not move it. |
 | `OPENAI_API_KEY`     | unset                              | Default model key for built-in agents and both shipped Bots.        |
 | `OPENAI_BASE_URL`    | unset                              | OpenAI-compatible endpoint that key is spent against. See below.    |
-| `BOT_PROVIDER`       | `openai`                           | Provider the framework Bot (`agent-langgraph`) and the picked harness run on: `openai`, `anthropic`, or `google`. The Python Bots read it too; `agent-bot` does not, it is OpenAI only. |
+| `BOT_PROVIDER`       | `openai`                           | Provider the framework Bot (`agent-langgraph`) and the picked harness run on: `openai`, `anthropic`, or `google`. `opencode-zen` is also accepted by the API server and `agent-langgraph`; see [OpenCode Zen](#opencode-zen). The Python Bots read it too; `agent-bot` does not, it is OpenAI only. |
 | `ANTHROPIC_API_KEY`  | unset                              | Anthropic key when `BOT_PROVIDER=anthropic`.                        |
+| `OPENCODE_ZEN_API_KEY` | unset                            | [OpenCode Zen](#opencode-zen) key. Offers Zen models in every Bot's model dropdown; see below. |
+| `OPENCODE_ZEN_BASE_URL` | `https://opencode.ai/zen/v1`    | Where Zen is reached, including the version segment.                |
 | `ANTHROPIC_BASE_URL` | unset                              | Anthropic-compatible endpoint that key is spent against.            |
 | `GOOGLE_API_KEY`     | unset                              | Google key when `BOT_PROVIDER=google`.                              |
 | `GOOGLE_GENERATIVE_AI_BASE_URL` | unset                   | Google-compatible endpoint that key is spent against.               |
@@ -203,6 +205,36 @@ call, in either language.
 
 `agent-bot` is the one Bot that pins its provider: it speaks `/v1/chat/completions` directly and
 has never read `BOT_PROVIDER`, and `bots.agent-bot` supplies only its model.
+
+## OpenCode Zen
+
+[OpenCode Zen](https://opencode.ai/zen) is a pay-as-you-go gateway: one key in front of GLM, Kimi, DeepSeek, MiniMax, Qwen, Mistral, Claude, GPT and others.
+
+```sh
+OPENCODE_ZEN_API_KEY=...
+# OPENCODE_ZEN_BASE_URL=https://opencode.ai/zen/v1   # default
+```
+
+With the key set, three things change.
+
+**Every Bot's form gets a model dropdown.** Create or edit a Bot and pick a model under *Model*. The list is Zen's own `GET /models`, read by the API server with your key (the browser never sees it) and cached for five minutes; if Zen cannot be reached the form shows a built-in list of common models instead. *Auto (deployment default)* is the first entry and stores nothing. The choice is saved on the Bot as `provider/model` (for example `opencode-zen/glm-5.3-flash`) in its configuration, and the same dropdown lists the default OpenAI and Anthropic models when their keys are set. Duplicating a Bot copies its model.
+
+**The model you pick is the model that answers.** A built-in Bot (one that runs in the API server) uses exactly that model, in place of the deployment default and in place of a signed-in subscription plan. If the key for it is missing, or Zen cannot serve it, the Bot says so in its reply rather than falling back to another model. A remote Bot is sent the choice as `forwardedProps.openbotModel` on every run. `agent-bot` honours it for Zen chat models and for `openai/...` models; any other model it cannot call refuses the run with the reason. Other framework Bots ignore it, and keep the model they were started with.
+
+**Zen can be the deployment's own model.** Set `BOT_PROVIDER=opencode-zen`, or set nothing but the Zen key (no `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, subscription sign-in or `BOT_PROVIDER`) and Zen is chosen for you. `BOT_MODEL` names the model, and the default is `glm-5.3-flash`. This is what Bots with *Auto* use, and what the coworker router and tool selection call. A Zen key kept in `OPENCODE_ZEN_API_KEY` is the only place it is read from: it is not stored in the credential vault. The start-up model availability check is skipped for Zen.
+
+Zen serves models over three wire formats, chosen by the model's name:
+
+| Format | Models | Built-in Bots | `agent-bot` | Router |
+| --- | --- | --- | --- | --- |
+| Chat completions (`/chat/completions`) | GLM, Kimi, DeepSeek, MiniMax, Mistral, Qwen Max, Big Pickle, free models | yes | yes | yes |
+| Responses (`/responses`) | `gpt-*`, `grok-*`, `muse-*` | yes | no | no |
+| Messages (`/messages`) | `claude-*`, `qwen3.x-flash/plus` | yes | no | no |
+| Other | `gemini-*`, `jev-*` | no | no | no |
+
+Gemini and Jev are left out of the dropdown, and the server refuses to save a Bot set to one. A model Zen adds later that follows none of those names is assumed to use chat completions. The format is guessed from the id because `/models` does not report it.
+
+Things to know. Zen's free models are rate limited and may answer 429 under load; use a paid model for anything that matters. `BOT_PROVIDER` is passed by compose to every framework Bot, and only `agent-langgraph` can run on Zen: the others (and `agent-mastra`, `agent-antigravity`) refuse to start with `BOT_PROVIDER=opencode-zen`, which is why the Zen-only default above leaves `BOT_PROVIDER` unset and is the better choice if you run those.
 
 ## OpenAI-compatible endpoints
 

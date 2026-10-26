@@ -289,6 +289,8 @@ Settings worth knowing:
 | `OPENBOT_SINGLE_USER`                | Admits every request as one administrator. Required when no identity provider is configured; `.env.example` ships it on. |
 | `OPENAI_BASE_URL`                    | Answers the OpenAI-shaped calls from somewhere else: a gateway, a proxy.  |
 | `ANTHROPIC_BASE_URL`, `GOOGLE_GENERATIVE_AI_BASE_URL` | The same, for those two APIs.            |
+| `OPENCODE_ZEN_API_KEY`               | [OpenCode Zen](https://opencode.ai/zen) key. Adds Zen's models to every Bot's *Model* dropdown, so a Bot can be forced onto one. With no other model key set, Zen is also the deployment default. See [docs/configuration.md](docs/configuration.md#opencode-zen). |
+| `OPENCODE_ZEN_BASE_URL`              | Where Zen is reached. Default `https://opencode.ai/zen/v1`.               |
 | `COMPUTER_TOKEN`                     | Secret every Bot computer request must present. `start.sh` falls back to a fixed dev value. |
 | `SUPERVISOR_TOKEN`                   | Secret the supervisor requires. `start.sh` falls back to a fixed dev value. |
 | `AGENT_TOOL_TOKEN`                   | Secret a Bot presents to call a granted tool back. `start.sh` sets one. Without it no Bot may call tools. |

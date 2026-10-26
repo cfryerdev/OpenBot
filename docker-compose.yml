@@ -282,6 +282,10 @@ services:
       # Unset means OpenAI. Set, it is any endpoint speaking the same API, and BOT_MODEL is sent
       # to it verbatim.
       OPENAI_BASE_URL: ${OPENAI_CONTAINER_BASE_URL:-${OPENAI_BASE_URL:-}}
+      # Only used when a Bot is set to an OpenCode Zen model from its form. This Bot then answers
+      # that run on Zen's chat completions endpoint; its own model above is unchanged.
+      OPENCODE_ZEN_API_KEY: ${OPENCODE_ZEN_API_KEY:-}
+      OPENCODE_ZEN_BASE_URL: ${OPENCODE_ZEN_BASE_URL:-}
       # gpt-5.5, not the deployment default: this Bot writes /v1/chat/completions by hand, and
       # gpt-5.6-* rejects function tools there unless reasoning is turned off. Its own variable, so
       # a BOT_MODEL set for the framework Bot cannot silently take its tools away.
@@ -370,6 +374,9 @@ services:
       ANTHROPIC_BASE_URL: ${ANTHROPIC_BASE_URL:-}
       GOOGLE_API_KEY: ${GOOGLE_API_KEY:-}
       GOOGLE_GENERATIVE_AI_BASE_URL: ${GOOGLE_GENERATIVE_AI_BASE_URL:-}
+      # BOT_PROVIDER=opencode-zen reads these.
+      OPENCODE_ZEN_API_KEY: ${OPENCODE_ZEN_API_KEY:-}
+      OPENCODE_ZEN_BASE_URL: ${OPENCODE_ZEN_BASE_URL:-}
       # Unset, this Bot takes the spec file's row for its model rather than this line
       # substituting gpt-5.5 whatever BOT_PROVIDER named — a provider other than OpenAI was
       # handed that substitute and then failed at its own vendor on it. The file's OpenAI row is
