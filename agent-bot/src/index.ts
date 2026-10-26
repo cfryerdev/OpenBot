@@ -11,6 +11,7 @@ import {
   requiresResponsesApi,
 } from "../../shared/model-providers";
 import { toProviderMessages } from "./history";
+import { runModelFor } from "./model-override";
 
 /**
  * The built-in Bot is an AG-UI HTTP service registered the same way as any customer-provided Bot.
@@ -114,6 +115,18 @@ const openai = new OpenAI({
   baseURL: BASE_URL,
 });
 
+/** One client per Zen endpoint and key, made on first use and kept. */
+const zenClients = new Map<string, OpenAI>();
+function zenClient(apiKey: string, baseURL: string) {
+  const id = `${baseURL}\n${apiKey}`;
+  let client = zenClients.get(id);
+  if (!client) {
+    client = new OpenAI({ apiKey, baseURL });
+    zenClients.set(id, client);
+  }
+  return client;
+}
+
 /** Every tool comes from the caller. This service publishes none of its own, on purpose. */
 function toProviderTools(input: RunAgentInput) {
   if (!input.tools?.length) return undefined;
@@ -142,8 +155,18 @@ async function runAgent(input: RunAgentInput): Promise<Response> {
       } as BaseEvent);
 
       try {
-        const completion = await openai.chat.completions.create({
-          model: MODEL,
+        /*
+         * The model this Bot was forced onto from its form, if it was. The run is refused with the
+         * reason rather than answered by a different model than the one chosen.
+         */
+        const forced = runModelFor(input.forwardedProps);
+        if (forced.kind === "refused") throw new Error(forced.reason);
+        const client =
+          forced.kind === "zen"
+            ? zenClient(forced.apiKey, forced.baseURL)
+            : openai;
+        const completion = await client.chat.completions.create({
+          model: forced.kind === "default" ? MODEL : forced.model,
           messages: toProviderMessages(input),
           tools: toProviderTools(input),
           stream: true,
