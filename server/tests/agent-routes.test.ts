@@ -115,6 +115,63 @@ async function json(response: Response) {
   return response.json();
 }
 
+describe("a Bot's chosen model", () => {
+  test("is optional: absent leaves it alone", () => {
+    expect(parseAgentInput(validInput)).toMatchObject({ ok: true });
+    const parsed = parseAgentInput(validInput);
+    expect(parsed.ok && "model" in parsed.value).toBe(false);
+  });
+
+  test("passes through trimmed, and empty clears it", () => {
+    expect(
+      parseAgentInput({ ...validInput, model: " opencode-zen/kimi-k3 " }),
+    ).toMatchObject({ ok: true, value: { model: "opencode-zen/kimi-k3" } });
+    expect(parseAgentInput({ ...validInput, model: "" })).toMatchObject({
+      ok: true,
+      value: { model: "" },
+    });
+  });
+
+  test.each([
+    [42],
+    ["noslash"],
+    ["mystery/model"],
+    ["opencode-zen/gemini-3-pro"],
+  ])("refuses %p", (model) => {
+    expect(parseAgentInput({ ...validInput, model })).toMatchObject({
+      ok: false,
+    });
+  });
+
+  test("the model list is served to a signed-in person, ahead of the :agentId route", async () => {
+    const catalog = {
+      auto: { value: "" as const, label: "Auto (deployment default)" },
+      options: [],
+      zen: { configured: false, live: false },
+    };
+    const app = new Hono<{ Variables: AppVariables }>();
+    app.route(
+      "/",
+      createAgentRoutes(
+        {} as AgentProfileStore,
+        requireUser,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        async () => catalog,
+      ),
+    );
+    const response = await app.request("/models");
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({ models: catalog });
+  });
+});
+
 describe("agent input parser", () => {
   test.each([[null], [[]], ["input"], [42], [true]])(
     "rejects a non-object root: %p",

@@ -259,10 +259,18 @@ export async function decryptCredentialForUse(
 export async function resolveModelApiKey(input: {
   encryptionKey: string;
   reader: ModelCredentialSecretReader;
-  provider: "openai" | "anthropic";
+  provider: "openai" | "anthropic" | "opencode-zen";
   keyId: string;
   environment: Record<string, string | undefined>;
 }) {
+  /*
+   * OpenCode Zen's key is an environment value only. The vault stores model keys for the two
+   * providers the tenant package can name (`credential_secret_ref`); Zen is chosen by deployment
+   * environment (`OPENCODE_ZEN_API_KEY`), so there is nothing to look up and nothing to decrypt.
+   */
+  if (input.provider === "opencode-zen") {
+    return input.environment.OPENCODE_ZEN_API_KEY?.trim() || null;
+  }
   const stored = await input.reader.readModelSecret({
     provider: input.provider,
     keyId: input.keyId,

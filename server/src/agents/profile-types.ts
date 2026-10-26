@@ -24,6 +24,11 @@ export type AgentProfile = {
   /** Whether a key is set for it. Never the key. */
   hasAuth: boolean;
   /**
+   * The model this Bot is forced onto, as `provider/model`, or null to run on the deployment default.
+   * Stored in the Bot's configuration beside its endpoint.
+   */
+  model?: string | null;
+  /**
    * Whether this agent holds a credential for calling tools back.
    *
    * A boolean, never the token: the token exists in a readable form once, in the response that issued
@@ -51,4 +56,11 @@ export type CreateAgentInput = Pick<
    * why it is optional rather than defaulting to empty; a blank field must not drop a key.
    */
   auth?: { header: string; value: string };
+  /**
+   * Force this Bot onto one model, as `provider/model` (for example `opencode-zen/glm-5.3-flash`).
+   *
+   * Absent on an update leaves the stored choice alone; the empty string clears it, so the Bot runs
+   * on the deployment default again.
+   */
+  model?: string;
 };

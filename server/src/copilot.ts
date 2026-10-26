@@ -1,6 +1,9 @@
 import type { Message, RunAgentInput } from "@ag-ui/client";
 import { type AbstractAgent, HttpAgent } from "@ag-ui/client";
-import type { BuiltInAgentConfiguration } from "@copilotkit/runtime/v2";
+import type {
+  BuiltInAgentClassicConfig,
+  BuiltInAgentConfiguration,
+} from "@copilotkit/runtime/v2";
 import {
   type CopilotKitIntelligence,
   CopilotRuntime,
@@ -8,6 +11,11 @@ import {
 import { createCopilotHonoHandler } from "@copilotkit/runtime/v2/hono";
 import { PROVENANCE_GUIDANCE } from "@openbot/shared/bot-prompt";
 import { defaultModelFor } from "@openbot/shared/model-providers";
+import {
+  parseModelChoice,
+  ZEN_PROVIDER_ID,
+  zenApiKey,
+} from "@openbot/shared/zen";
 import {
   BuiltInAgentWithSaneHistory,
   CloningRemoteAgent,
@@ -66,6 +74,7 @@ import {
   selectTools,
 } from "./plugins/selection";
 import { grantedToolGuidance } from "./plugins/tools";
+import { zenLanguageModel } from "./models/zen";
 import { UNTRUSTED_GUIDANCE } from "./untrusted-content";
 
 /**
@@ -92,6 +101,8 @@ type RegisteredBuiltInAgent = {
   name: string;
   type: "built_in";
   systemPrompt: string;
+  /** `provider/model` this Bot is forced onto. Absent runs on the deployment's model. */
+  model?: string;
 };
 
 type RegisteredRemoteAgentFacts = {
@@ -101,6 +112,8 @@ type RegisteredRemoteAgentFacts = {
   /** Which agent on the endpoint, for a server that serves a roster. See `remoteTransport`. */
   remoteAgentId?: string;
   standingMessage: StandingRoleMessage;
+  /** `provider/model` this Bot is forced onto, forwarded to the endpoint with every run. */
+  model?: string;
   /** The key this agent sits behind, resolved from the vault at load time. Never logged. */
   headers?: Record<string, string>;
 };
@@ -183,7 +196,7 @@ export function standingRoleMessage(
 }
 
 export type RuntimeModel = {
-  provider: "openai" | "anthropic";
+  provider: "openai" | "anthropic" | typeof ZEN_PROVIDER_ID;
   defaultModel: string;
   plan?: PlanModelConfig;
 };
@@ -192,7 +205,11 @@ export type RuntimeModel = {
 export function normalizeModelBaseUrls(
   environment: Record<string, string | undefined> = process.env,
 ): void {
-  for (const key of ["OPENAI_BASE_URL", "ANTHROPIC_BASE_URL"]) {
+  for (const key of [
+    "OPENAI_BASE_URL",
+    "ANTHROPIC_BASE_URL",
+    "OPENCODE_ZEN_BASE_URL",
+  ]) {
     const value = environment[key]?.trim();
     if (!value) {
       delete environment[key];
@@ -226,20 +243,38 @@ export function runtimeModelForEnvironment(
   const selectedProvider = environment.BOT_PROVIDER?.trim().toLowerCase();
   // The desktop writes an empty provider when switching back to OpenAI. An absent
   // choice leaves the tenant package authoritative.
+  /*
+   * OpenCode Zen is the deployment's model when asked for by name (`BOT_PROVIDER=opencode-zen`), or
+   * when it is the only thing configured: a Zen key and no OpenAI key, no Anthropic key, no
+   * subscription plan, and no provider named. That last case is what makes "put the key in .env"
+   * enough for someone who has no other model account. Any other key, or any explicit provider,
+   * leaves the deployment where it was, and Zen is then reachable per Bot from the model dropdown.
+   */
+  const zenOnly =
+    selectedProvider === undefined &&
+    !!zenApiKey(environment) &&
+    !environment.OPENAI_API_KEY?.trim() &&
+    !environment.ANTHROPIC_API_KEY?.trim() &&
+    !planModelForEnvironment(environment);
   const provider =
-    selectedProvider === "anthropic"
-      ? "anthropic"
-      : selectedProvider === "openai" || selectedProvider === ""
-        ? "openai"
-        : packageModel.provider;
+    selectedProvider === ZEN_PROVIDER_ID || zenOnly
+      ? ZEN_PROVIDER_ID
+      : selectedProvider === "anthropic"
+        ? "anthropic"
+        : selectedProvider === "openai" || selectedProvider === ""
+          ? "openai"
+          : packageModel.provider;
   const defaultModel =
     provider === packageModel.provider
       ? packageModel.defaultModel
-      : provider === "anthropic"
-        ? defaultModelFor("anthropic")
-        : BUILT_IN_OPENAI_FALLBACK_MODEL;
+      : provider === ZEN_PROVIDER_ID
+        ? defaultModelFor(ZEN_PROVIDER_ID)
+        : provider === "anthropic"
+          ? defaultModelFor("anthropic")
+          : BUILT_IN_OPENAI_FALLBACK_MODEL;
   const selectedModelApplies =
     provider === "anthropic" ||
+    provider === ZEN_PROVIDER_ID ||
     ((!selectedProvider || selectedProvider === "openai") &&
       !!environment.OPENAI_BASE_URL?.trim());
   return {
@@ -266,6 +301,14 @@ export function registeredAgentFromRow(
     return null;
   }
   const configuration = row.configuration;
+  // The model this Bot was forced onto from its form, `provider/model`. Anything that does not parse
+  // is treated as no choice rather than failing the roster: the form refuses to save one, so this
+  // can only be a hand-edited row, and every other Bot must keep loading.
+  const stored = configuration?.model;
+  const model =
+    typeof stored === "string" && parseModelChoice(stored)
+      ? stored.trim()
+      : undefined;
   if (row.type === "built_in") {
     const systemPrompt = configuration?.systemPrompt;
     const trimmedSystemPrompt =
@@ -276,6 +319,7 @@ export function registeredAgentFromRow(
           name: row.name,
           type: "built_in",
           systemPrompt: trimmedSystemPrompt,
+          ...(model ? { model } : {}),
         }
       : null;
   }
@@ -299,6 +343,7 @@ export function registeredAgentFromRow(
           ? { remoteAgentId }
           : {}),
         standingMessage: standingRoleMessage(row),
+        ...(model ? { model } : {}),
       }
     : null;
 }
@@ -355,6 +400,78 @@ export function standingInstructionsGuidance(
   ].join("\n\n");
 }
 
+const KEY_VARIABLE = {
+  openai: "OPENAI_API_KEY",
+  anthropic: "ANTHROPIC_API_KEY",
+  [ZEN_PROVIDER_ID]: "OPENCODE_ZEN_API_KEY",
+} as const;
+
+/**
+ * Which model a built-in Bot runs on, and the key that goes with it.
+ *
+ * A Bot forced onto a model from its form (`agent.model`) runs on exactly that, whatever the
+ * deployment's default is; this is what makes the dropdown a setting and not a suggestion. A Bot
+ * with no choice runs on the deployment's model as it always did, including the subscription plan
+ * when one is signed in.
+ *
+ * The key for a forced model comes from the provider that model belongs to. When that is the
+ * deployment's own provider it is the key already resolved for it (which may be a stored one); for
+ * any other provider it is that provider's key in this process's environment. A forced model whose
+ * key is missing, or that Zen cannot serve in a format OpenBot speaks, is a Bot that answers every
+ * message with that reason — the same shape as a missing credential, never a silent fall back to a
+ * different model than the one a person picked.
+ *
+ * Zen models are handed over as the AI SDK's own model object, not a `provider/model` string, since
+ * the runtime's string form has no Zen.
+ */
+export function modelForBuiltInAgent(
+  agent: Pick<RegisteredBuiltInAgent, "name" | "model">,
+  model: RuntimeModel,
+  apiKey: string | null,
+  planModel?: PlanModel,
+  environment: Record<string, string | undefined> = process.env,
+):
+  | { model: BuiltInAgentClassicConfig["model"]; apiKey?: string }
+  | { problem: string } {
+  const choice = parseModelChoice(agent.model);
+  const target = choice ?? {
+    provider: model.provider,
+    model: model.defaultModel,
+  };
+  if (!choice && planModel) return { model: planModel };
+
+  const provider = target.provider as keyof typeof KEY_VARIABLE;
+  const key =
+    provider === model.provider && apiKey
+      ? apiKey
+      : environment[KEY_VARIABLE[provider] ?? ""]?.trim() || null;
+  if (!key) {
+    return {
+      problem: `Model credential is not configured for ${agent.name}. ${
+        choice
+          ? `This Bot is set to ${agent.model}; set ${KEY_VARIABLE[provider] ?? "the provider's API key"}`
+          : `Add the package credential or set ${KEY_VARIABLE[provider]}`
+      }.`,
+    };
+  }
+
+  if (provider === ZEN_PROVIDER_ID) {
+    try {
+      return {
+        model: zenLanguageModel(target.model, {
+          ...environment,
+          OPENCODE_ZEN_API_KEY: key,
+        }),
+      };
+    } catch (error) {
+      return {
+        problem: `${agent.name}: ${error instanceof Error ? error.message : String(error)}`,
+      };
+    }
+  }
+  return { model: `${provider}/${target.model}`, apiKey: key };
+}
+
 export function builtInAgentConfiguration(
   agent: RegisteredBuiltInAgent,
   model: RuntimeModel,
@@ -392,14 +509,13 @@ export function builtInAgentConfiguration(
   planModel?: PlanModel,
   learnedSkills?: LearnedSkillInvocation,
 ): BuiltInAgentConfiguration {
-  if (!apiKey && !planModel) {
+  const chosen = modelForBuiltInAgent(agent, model, apiKey, planModel);
+  if ("problem" in chosen) {
     return {
       type: "custom",
       // biome-ignore lint/correctness/useYield: this agent must fail when iteration starts.
       factory: async function* () {
-        throw new Error(
-          `Model credential is not configured for ${agent.name}. Add the package credential or set ${model.provider === "anthropic" ? "ANTHROPIC_API_KEY" : "OPENAI_API_KEY"}.`,
-        );
+        throw new Error(chosen.problem);
       },
     };
   }
@@ -416,7 +532,7 @@ export function builtInAgentConfiguration(
   ];
 
   return {
-    model: planModel ?? `${model.provider}/${model.defaultModel}`,
+    model: chosen.model,
     /*
      * The package's role, then the person's own standing instructions, then what this Bot actually
      * holds, then the computer.
@@ -448,7 +564,7 @@ export function builtInAgentConfiguration(
       ...(computerGuidance ? [computerGuidance] : []),
       ...(learnedSkills?.catalog ? [learnedSkills.catalog] : []),
     ].join("\n\n"),
-    ...(planModel ? {} : { apiKey: apiKey ?? undefined }),
+    ...(chosen.apiKey === undefined ? {} : { apiKey: chosen.apiKey }),
     /*
      * A run stops after one step unless told otherwise, which for a Bot with tools means it calls
      * one and never speaks: the tool executes, the result arrives, and the run ends before the model
@@ -1332,6 +1448,16 @@ function remoteAgentWithStandingRole(
     const forwardedProps = {
       ...(isPlainObject(input.forwardedProps) ? input.forwardedProps : {}),
       openbotBotId: agent.id,
+      /*
+       * The model this Bot was forced onto from its form, `provider/model`, or absent for the
+       * endpoint's own choice.
+       *
+       * Always overwritten here and never taken from the caller's own props: the setting belongs to
+       * the Bot, so a request that names a different model must not move it. A key does not travel
+       * with it. An endpoint that honours this (`agent-bot` does) already holds the key for it, and
+       * one that does not simply ignores the prop and keeps its own model.
+       */
+      ...(agent.model ? { openbotModel: agent.model } : {}),
       /*
        * Which of those tools this deployment runs, as opposed to the surface.
        *

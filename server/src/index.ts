@@ -1203,18 +1203,23 @@ const intentRouter = createIntentRouter({
 
 // Said once at boot: whether the key can call the model the Bots run on. A key without access to it
 // otherwise passes every start-up check and fails at the first message, in front of whoever sent it.
-void reportModelAvailability({
-  provider: runtimeModel.provider,
-  model: runtimeModel.defaultModel,
-  apiKey: () =>
-    resolveModelApiKey({
-      encryptionKey: config.keyEncryptionKey,
-      reader: credentialStore,
-      provider: runtimeModel.provider,
-      keyId: tenantPackage.model.credentialSecretRef,
-      environment: process.env,
-    }),
-});
+//
+// Not for OpenCode Zen: it has no single-model lookup to ask, and a Bot can be set to any Zen model
+// from its form, so the deployment's default says little about which will be used.
+const availabilityProvider = runtimeModel.provider;
+if (availabilityProvider !== "opencode-zen")
+  void reportModelAvailability({
+    provider: availabilityProvider,
+    model: runtimeModel.defaultModel,
+    apiKey: () =>
+      resolveModelApiKey({
+        encryptionKey: config.keyEncryptionKey,
+        reader: credentialStore,
+        provider: availabilityProvider,
+        keyId: tenantPackage.model.credentialSecretRef,
+        environment: process.env,
+      }),
+  });
 
 // Named collaborators are bound once in actorAgentResolver for chat, hops, and headless turns.
 

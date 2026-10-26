@@ -1,3 +1,4 @@
+import { zenApiFor, zenBaseUrl } from "@openbot/shared/zen";
 import type { RuntimeModel } from "../copilot";
 
 /**
@@ -18,10 +19,18 @@ export function createModelCompleter(deps: {
     signal?.throwIfAborted();
     if (!key) throw new Error("no model key");
     const anthropic = deps.model.provider === "anthropic";
+    const zen = deps.model.provider === "opencode-zen";
+    // The router speaks chat completions. A Zen model served in another format (GPT, Claude, ...)
+    // is "not sure", the same soft landing as a missing key, rather than a request that 404s.
+    if (zen && zenApiFor(deps.model.defaultModel) !== "chat") {
+      throw new Error("router model is not served by Zen's chat endpoint");
+    }
     const response = await fetch(
       anthropic
         ? anthropicMessagesUrl(process.env)
-        : chatCompletionsUrl(process.env),
+        : zen
+          ? `${zenBaseUrl(process.env)}/chat/completions`
+          : chatCompletionsUrl(process.env),
       {
         method: "POST",
         headers: {
@@ -48,7 +57,9 @@ export function createModelCompleter(deps: {
            */
           ...(anthropic
             ? { max_tokens: 1024 }
-            : { response_format: { type: "json_object" } }),
+            : zen
+              ? {}
+              : { response_format: { type: "json_object" } }),
           messages: [{ role: "user", content: prompt }],
         }),
         signal: signal

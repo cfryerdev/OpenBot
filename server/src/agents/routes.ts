@@ -5,6 +5,11 @@ import { recordAuditEvent } from "../audit";
 import type { AppVariables } from "../auth/guards";
 import { afterExposureChange } from "../plugins/exposure-change";
 import type { SharedUseStore } from "../plugins/shared-use-store";
+import {
+  createModelCatalog,
+  type ModelCatalog,
+  modelChoiceProblem,
+} from "../models/catalog";
 import { testAgentConnection } from "./connection-test";
 import { checkAgentEndpoint } from "./endpoint";
 import { isManagedEndpoint } from "./managed-endpoint";
@@ -34,6 +39,7 @@ type AgentInputObject = {
   visibility?: unknown;
   endpoint?: unknown;
   auth?: unknown;
+  model?: unknown;
 };
 
 /**
@@ -124,9 +130,29 @@ export function parseAgentInput(
     }
   }
 
+  // Optional. Absent leaves a stored choice alone, empty clears it, anything else must be a model
+  // this deployment knows how to run, so a typo is refused here rather than at the Bot's first reply.
+  let model: string | undefined;
+  if (input.model !== undefined && input.model !== null) {
+    if (typeof input.model !== "string") {
+      return { ok: false, error: "Model must be text." };
+    }
+    model = input.model.trim();
+    const problem = model ? modelChoiceProblem(model) : null;
+    if (problem) return { ok: false, error: problem };
+  }
+
   return {
     ok: true,
-    value: { name, title, roleDescription, visibility, endpoint, auth },
+    value: {
+      name,
+      title,
+      roleDescription,
+      visibility,
+      endpoint,
+      auth,
+      ...(model === undefined ? {} : { model }),
+    },
   };
 }
 
@@ -309,6 +335,8 @@ export function createAgentRoutes(
    * the picked harness answering 401 to everything.
    */
   managedRun?: { token: string; endpoints: readonly (string | URL)[] },
+  /** What the model dropdown lists. Defaults to this process's environment (Zen key, provider keys). */
+  modelCatalog: () => Promise<ModelCatalog> = createModelCatalog(),
 ) {
   /** The dto with the one fact only this closure knows: whether the coworker runs on our own Bot. */
   const dto = (actor: AgentActor, agent: AgentProfile) => ({
@@ -402,6 +430,16 @@ export function createAgentRoutes(
    */
   routes.get("/capabilities", requireUser, (context) =>
     context.json({ capabilities: { builtInAvailable } }),
+  );
+
+  /**
+   * The models a Bot may be forced onto, for the dropdown on its form.
+   *
+   * Above the parameterised route for the same reason as `/capabilities`. Never carries a key: the
+   * Zen catalogue is fetched server-side with the deployment's key and only ids come back.
+   */
+  routes.get("/models", requireUser, async (context) =>
+    context.json({ models: await modelCatalog() }),
   );
 
   routes.get("/:agentId", requireUser, async (context) => {
@@ -551,6 +589,7 @@ export function createAgentRoutes(
         visibility: parsed.value.visibility,
         ...(parsed.value.endpoint ? { endpoint: parsed.value.endpoint } : {}),
         hasKey: Boolean(parsed.value.auth),
+        ...(parsed.value.model ? { model: parsed.value.model } : {}),
       });
       return context.json({ agent: dto(context.var.actor, agent) }, 201);
     } catch (error) {
@@ -591,6 +630,9 @@ export function createAgentRoutes(
         visibility: parsed.value.visibility,
         ...(parsed.value.endpoint ? { endpoint: parsed.value.endpoint } : {}),
         ...(parsed.value.auth ? { keyReplaced: true } : {}),
+        ...(parsed.value.model === undefined
+          ? {}
+          : { model: parsed.value.model || null }),
       });
       /*
        * Publishing is the owner's call, and a wider audience can outrun what an administrator
@@ -818,6 +860,8 @@ function agentDto(actor: AgentActor, agent: AgentProfile) {
     // Published so the edit form can show it. Safe to expose: it is an address the person supplied,
     // and any credential for it lives in the vault, never in this row.
     endpoint: agent.endpoint,
+    // The model this Bot is forced onto, `provider/model`, or null for the deployment default.
+    model: agent.model,
     hasAuth: agent.hasAuth,
     // Whether one exists, never what it is.
     hasCallbackToken: agent.hasCallbackToken,

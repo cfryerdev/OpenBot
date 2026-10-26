@@ -196,6 +196,7 @@ function mapProfile(
     // Whether a key is set, never which. The form needs to show "a key is set" so a person does not
     // wipe one by saving an unrelated edit; showing the value would put a secret in a screenshot.
     hasAuth: authFromConfiguration(row.configuration) !== null,
+    model: modelOf(row.configuration),
   };
 }
 
@@ -214,6 +215,16 @@ function endpointOf(configuration: unknown): string | null {
 }
 
 /** Which agent on a Mastra server this Bot means, when the row names one. */
+/**
+ * The model a Bot is forced onto, `provider/model`, read back out of its stored configuration.
+ * Null is "no choice": the Bot runs on whatever the deployment is configured to run.
+ */
+export function modelOf(configuration: unknown): string | null {
+  if (!configuration || typeof configuration !== "object") return null;
+  const model = (configuration as { model?: unknown }).model;
+  return typeof model === "string" && model.trim() ? model.trim() : null;
+}
+
 function remoteAgentIdOf(configuration: unknown): string | null {
   if (!configuration || typeof configuration !== "object") return null;
   const named = (configuration as { remoteAgentId?: unknown }).remoteAgentId;
@@ -278,8 +289,17 @@ export function runForDuplicate(
   managed: Record<string, unknown> | undefined,
 ): AgentRun | null {
   const systemPrompt = systemPromptOf(source.configuration);
+  // A copy runs on the model its original was forced onto, for the same reason it keeps the
+  // original's type and prompt: a duplicate that quietly answered on a different model would look
+  // identical on every screen.
+  const model = modelOf(source.configuration);
+  const withModel = (configuration: Record<string, unknown>) =>
+    model ? { ...configuration, model } : configuration;
   if (source.type === "built_in" && systemPrompt) {
-    return { type: "built_in", configuration: { systemPrompt } };
+    return {
+      type: "built_in",
+      configuration: withModel({ systemPrompt }),
+    };
   }
 
   const endpoint = endpointOf(source.configuration);
@@ -298,15 +318,17 @@ export function runForDuplicate(
       const remoteAgentId = remoteAgentIdOf(source.configuration);
       return {
         type: "remote_mastra",
-        configuration: remoteAgentId
-          ? { endpoint, remoteAgentId }
-          : { endpoint },
+        configuration: withModel(
+          remoteAgentId ? { endpoint, remoteAgentId } : { endpoint },
+        ),
       };
     }
-    return { type: "remote_ag_ui", configuration: { endpoint } };
+    return { type: "remote_ag_ui", configuration: withModel({ endpoint }) };
   }
 
-  return managed ? { type: "remote_ag_ui", configuration: managed } : null;
+  return managed
+    ? { type: "remote_ag_ui", configuration: withModel(managed) }
+    : null;
 }
 
 async function findAccessibleProfile(
@@ -455,6 +477,7 @@ export function createAgentProfileStore(
             // auth-header.ts for why a bearer token must not sit next to the endpoint.
             configuration: {
               ...endpoint,
+              ...(input.model ? { model: input.model } : {}),
               ...(input.auth && vault
                 ? {
                     auth: await storeAgentAuth({
@@ -483,7 +506,10 @@ export function createAgentProfileStore(
             id,
             name: input.name,
             type: "built_in",
-            configuration: { systemPrompt },
+            configuration: {
+              systemPrompt,
+              ...(input.model ? { model: input.model } : {}),
+            },
           });
         } else {
           /*
@@ -553,7 +579,7 @@ export function createAgentProfileStore(
            * `role_description`, cannot reach this code at all: `requireManageable` above throws
            * `ProtectedAgentError` for anything the package owns.
            */
-          const configuration = {
+          const configuration: Record<string, unknown> = {
             ...previous,
             ...(row?.type === "built_in"
               ? { systemPrompt: input.roleDescription }
@@ -577,7 +603,11 @@ export function createAgentProfileStore(
                   }),
                 }
               : {}),
+            ...(input.model ? { model: input.model } : {}),
           };
+          // The empty string is "back to the deployment default", which means the key must go, not
+          // be stored empty; absent leaves whatever `previous` carried.
+          if (input.model === "") delete configuration.model;
 
           /*
            * The key this one replaces is already retired, by the rotation above.
